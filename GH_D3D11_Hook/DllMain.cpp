@@ -26,7 +26,9 @@ ID3D11Buffer* pVertexBuffer = nullptr;
 ID3D11Buffer* pIndexBuffer = nullptr;
 ID3D11Buffer* pConstantBuffer = nullptr;
 
-D3D11_VIEWPORT vp{ 0 };
+// Changing this to an array of viewports
+#define MAINVP 0
+D3D11_VIEWPORT pViewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{ 0 };
 XMMATRIX mOrtho;
 
 struct ConstantBuffer
@@ -40,6 +42,13 @@ struct Vertex
 	XMFLOAT4 color;
 };
 
+HRESULT __stdcall hkPresent( IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags );
+using fnPresent = HRESULT( __stdcall* )(IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags);
+void* ogPresent;					// Pointer to the original Present function
+fnPresent ogPresentTramp;			// Function pointer that calls the Present stub in our trampoline
+void* pTrampoline = nullptr;		// Pointer to jmp instruction in our trampoline that leads to hkPresent
+char ogBytes[PRESENT_STUB_SIZE];	// Buffer to store original bytes from Present
+
 bool Hook( void* pSrc, void* pDst, size_t size );
 bool WriteMem( void* pDst, char* pBytes, size_t size );
 bool HookD3D();
@@ -48,12 +57,14 @@ bool InitD3DHook( IDXGISwapChain* pSwapchain );
 void CleanupD3D();
 void Render();
 
-HRESULT __stdcall hkPresent( IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags );
-using fnPresent = HRESULT( __stdcall* )(IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags);
-void* ogPresent;					// Pointer to the original Present function
-fnPresent ogPresentTramp;			// Function pointer that calls the Present stub in our trampoline
-void* pTrampoline = nullptr;		// Pointer to jmp instruction in our trampoline that leads to hkPresent
-char ogBytes[PRESENT_STUB_SIZE];	// Buffer to store original bytes from Present
+// adding this code ripped off SO to find the "main window" as a fallback to RSGetViewports
+struct HandleData
+{
+	DWORD pid;
+	HWND hWnd;
+};
+HWND FindMainWindow( DWORD dwPID );
+BOOL CALLBACK EnumWindowsCallback( HWND hWnd, LPARAM lParam );
 
 void MainThread( void* pHandle )
 {
@@ -167,7 +178,7 @@ bool HookD3D()
 	*(char*)pTrampLoc = (char)0xE9;
 	pTrampLoc = (void*)((uintptr_t)pTrampLoc + 1);
 	uintptr_t ogPresRet = (uintptr_t)ogPresent + 5;
-	*(int*)pTrampLoc = ogPresRet - (int)(uintptr_t)pTrampLoc - 4;
+	*(int*)pTrampLoc = (int)(ogPresRet - (uintptr_t)pTrampLoc - 4);
 	
 	// write the jmp to our hook
 	pTrampoline = pTrampLoc = (void*)((uintptr_t)pTrampLoc + 4);
@@ -267,30 +278,41 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 	if (FAILED( hr ))
 		return false;
 
-	UINT numViewports = 0;
+	UINT numViewports = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
 	float fWidth =  0;
 	float fHeight = 0;
-	pContext->RSGetViewports( &numViewports, &vp );
-	// Usually this won't fail but if it does...
-	if (!numViewports)
+
+	// Apparently this isn't universal. Works on some games
+	pContext->RSGetViewports( &numViewports, pViewports );
+	
+	//
+	if (!numViewports || !pViewports[MAINVP].Width)
 	{
 		// This should be retrieved dynamically
-		fWidth = 1280.0f;
-		fHeight = 800.0f;
+		//HWND hWnd0 = FindWindowA( "W2ViewportClass", nullptr );
+		HWND hWnd = FindMainWindow( GetCurrentProcessId() );
+		RECT rc{ 0 };
+		if (!GetClientRect( hWnd, &rc ))
+			return false;
+
+		//fWidth = 1600.0f;
+		//fHeight = 900.0f;
+		fWidth = (float)rc.right;
+		fHeight = (float)rc.bottom;
 
 		// Setup viewport
-		vp.Width = (float)fWidth;
-		vp.Height = (float)fHeight;
-		vp.MinDepth = 0.0f;
-		vp.MaxDepth = 1.0f;
+		pViewports[MAINVP].Width = (float)fWidth;
+		pViewports[MAINVP].Height = (float)fHeight;
+		pViewports[MAINVP].MinDepth = 0.0f;
+		pViewports[MAINVP].MaxDepth = 1.0f;
 
 		// Set viewport to context
-		pContext->RSSetViewports( 1, &vp );
+		pContext->RSSetViewports( 1, pViewports );
 	}
 	else
 	{
-		fWidth = (float)vp.Width;
-		fHeight = (float)vp.Height;
+		fWidth = (float)pViewports[MAINVP].Width;
+		fHeight = (float)pViewports[MAINVP].Height;
 	}
 	// Create the constant buffer
 	D3D11_BUFFER_DESC bd{ 0 };
@@ -310,7 +332,7 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 		return false;
 
 	// Create a triangle to render
-	// Create a vertex buffer
+	// Create a vertex buffer, start by setting up a description.
 	ZeroMemory( &bd, sizeof( bd ) );
 	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	bd.Usage = D3D11_USAGE_DEFAULT;
@@ -321,13 +343,13 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 	float left = fWidth / -2;
 	float top = fHeight / 2;
 
-	// Center position of triangle
-	float fPosX = 25;
-	float fPosY = 25;
-	
 	// Width and height of triangle
 	float w = 50;
 	float h = 50;
+	
+	// Center position of triangle, this should center it in the screen.
+	float fPosX = -1 * left;
+	float fPosY = top;
 
 	// Setup vertices of triangle
 	Vertex pVerts[3] = {
@@ -336,6 +358,7 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 		{ XMFLOAT3( left + fPosX - w / 2,	top - fPosY - h / 2,	1.0f ),	XMFLOAT4( 0.0f, 1.0f, 0.0f, 1.0f ) },
 	};	  
 
+	// create the buffer.
 	ZeroMemory( &sr, sizeof( sr ) );
 	sr.pSysMem = &pVerts;
 	hr = pDevice->CreateBuffer( &bd, &sr, &pVertexBuffer );
@@ -394,7 +417,7 @@ void Render()
 	pContext->PSSetShader( pPixelShader, nullptr, 0 );
 
 	// Set viewport to context
-	pContext->RSSetViewports( 1, &vp );
+	pContext->RSSetViewports( 1, pViewports );
 
 	// Draw our triangle
 	pContext->DrawIndexed( 3, 0, 0 );
@@ -404,7 +427,7 @@ HRESULT __stdcall hkPresent( IDXGISwapChain * pThis, UINT SyncInterval, UINT Fla
 {
 	pSwapchain = pThis;
 
-	if(!pDevice)
+	if (!pDevice)
 	{
 		if (!InitD3DHook( pThis ))
 			return false;
@@ -412,4 +435,26 @@ HRESULT __stdcall hkPresent( IDXGISwapChain * pThis, UINT SyncInterval, UINT Fla
 
 	Render();
 	return ogPresentTramp( pThis, SyncInterval, Flags );
+}
+
+HWND FindMainWindow( DWORD dwPID )
+{
+	HandleData handleData{ 0 };
+	handleData.pid = dwPID;
+	EnumWindows( EnumWindowsCallback, (LPARAM)&handleData );
+	return handleData.hWnd;
+}
+
+BOOL EnumWindowsCallback( HWND hWnd, LPARAM lParam )
+{
+	HandleData& data = *(HandleData*)lParam;
+	DWORD pid = 0;
+	GetWindowThreadProcessId( hWnd, &pid );
+	if (pid == data.pid && GetWindow( hWnd, GW_OWNER ) == HWND( 0 ) && IsWindowVisible( hWnd ))
+	{
+		data.hWnd = hWnd;
+		return FALSE;
+	}
+
+	return TRUE;
 }
