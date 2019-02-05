@@ -17,3 +17,5 @@ to detour Present and render our triangle.
 While the code isn't extremely elegant, it's not meant to be.
 This is just a simple PoC to demonstrate one way, a fairly decent way imo, of hooking
 direct3d 11 and rendering our own simple geometry.
+
+![screenshot](https://github.com/guided-hacking/GH_D3D11_Hook/blob/master/ss.png "FarCry5 Example")
