@@ -26,6 +26,7 @@ ID3D11Buffer* pVertexBuffer = nullptr;
 ID3D11Buffer* pIndexBuffer = nullptr;
 ID3D11Buffer* pConstantBuffer = nullptr;
 
+D3D11_VIEWPORT vp{ 0 };
 XMMATRIX mOrtho;
 
 struct ConstantBuffer
@@ -46,8 +47,8 @@ bool CompileShader( const char* szShader, const char * szEntrypoint, const char 
 bool InitD3DHook( IDXGISwapChain* pSwapchain );
 void CleanupD3D();
 void Render();
-HRESULT __stdcall hkPresent( IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags );
 
+HRESULT __stdcall hkPresent( IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags );
 using fnPresent = HRESULT( __stdcall* )(IDXGISwapChain* pThis, UINT SyncInterval, UINT Flags);
 void* ogPresent;					// Pointer to the original Present function
 fnPresent ogPresentTramp;			// Function pointer that calls the Present stub in our trampoline
@@ -266,9 +267,7 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 	if (FAILED( hr ))
 		return false;
 
-	D3D11_VIEWPORT vp{ 0 };
-	UINT numViewports = 1;
-	// 
+	UINT numViewports = 0;
 	float fWidth =  0;
 	float fHeight = 0;
 	pContext->RSGetViewports( &numViewports, &vp );
@@ -276,11 +275,10 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 	if (!numViewports)
 	{
 		// This should be retrieved dynamically
-		fWidth = 800.0f;
-		fHeight = 600.0f;
+		fWidth = 1280.0f;
+		fHeight = 800.0f;
 
 		// Setup viewport
-		D3D11_VIEWPORT vp{ 0 };
 		vp.Width = (float)fWidth;
 		vp.Height = (float)fHeight;
 		vp.MinDepth = 0.0f;
@@ -289,9 +287,11 @@ bool InitD3DHook( IDXGISwapChain * pSwapchain )
 		// Set viewport to context
 		pContext->RSSetViewports( 1, &vp );
 	}
-	fWidth =  (float)vp.Width;
-	fHeight = (float)vp.Height;
-
+	else
+	{
+		fWidth = (float)vp.Width;
+		fHeight = (float)vp.Height;
+	}
 	// Create the constant buffer
 	D3D11_BUFFER_DESC bd{ 0 };
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -372,6 +372,9 @@ void CleanupD3D()
 
 void Render()
 {	
+	// Make sure our render target is set.
+	pContext->OMSetRenderTargets( 1, &pRenderTargetView, nullptr );
+
 	// Update view
 	ConstantBuffer cb;
 	cb.mProjection = XMMatrixTranspose( mOrtho );
@@ -389,6 +392,9 @@ void Render()
 	// Set the shaders we need to render our triangle
 	pContext->VSSetShader( pVertexShader, nullptr, 0 );
 	pContext->PSSetShader( pPixelShader, nullptr, 0 );
+
+	// Set viewport to context
+	pContext->RSSetViewports( 1, &vp );
 
 	// Draw our triangle
 	pContext->DrawIndexed( 3, 0, 0 );
