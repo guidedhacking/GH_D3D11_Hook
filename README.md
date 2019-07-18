@@ -1,4 +1,5 @@
-# GH_D3D11_Hook
+# GH D3D11 Hook
+
 Barebones D3D11 hook.
 
 x86/x64 Compatible
@@ -19,3 +20,5 @@ This is just a simple PoC to demonstrate one way, a fairly decent way imo, of ho
 direct3d 11 and rendering our own simple geometry.
 
 ![screenshot](https://github.com/guided-hacking/GH_D3D11_Hook/blob/master/ss.png "FarCry5 Example")
+
+[BareBones D3D11 Hook Thread on GH](https://guidedhacking.com/threads/d3d11-barebones-hook-poc.11939/)
