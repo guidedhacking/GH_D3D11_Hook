@@ -445,7 +445,7 @@ HWND FindMainWindow( DWORD dwPID )
 	return handleData.hWnd;
 }
 
-BOOL EnumWindowsCallback( HWND hWnd, LPARAM lParam )
+BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam)
 {
 	HandleData& data = *(HandleData*)lParam;
 	DWORD pid = 0;
