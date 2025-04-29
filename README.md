@@ -93,3 +93,5 @@ Associated Resources​
 -   [Source Code - D3D11 Barebones hook PoC](https://guidedhacking.com/threads/d3d11-barebones-hook-poc.11939/)
 -   [Source Code - D3D11 SWBF2 Cheats ( 2017 )](https://guidedhacking.com/threads/star-wars-battlefront-ii-hacks-swbf2-cheats-2017.15348/)
 -   [DirectX11 Hook and Logger](https://guidedhacking.com/threads/directx11-hook-and-logger.11910/)
+
+GuidedHacking® - The Game Hacking Bible® - © 2025 Guided Hacking LLC. All Rights Reserved.
